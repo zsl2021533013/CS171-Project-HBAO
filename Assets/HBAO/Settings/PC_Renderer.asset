@@ -67,9 +67,10 @@ MonoBehaviour:
   m_Active: 0
   shader: {fileID: 4800000, guid: 86bf0c42900044dd844ab769fd98358e, type: 3}
   renderSettings:
-    intensity: 2
+    intensity: 3
     radius: 1.2
     maxRadiusPixels: 256
     angleBias: 0.05
     maxDistance: 150
     distanceFalloff: 100
+    blurSize: 1

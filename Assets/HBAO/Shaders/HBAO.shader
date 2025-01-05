@@ -31,7 +31,7 @@
             StructuredBuffer<float2> _NoiseCB;
 
             Texture2D _MainTex;
-            
+
             float _Intensity;
             float _Radius;
             float _InvRadius2;
@@ -128,15 +128,17 @@
 
                 ao = lerp(1, saturate(1 - ao), distFactor);
 
+                ao = saturate(ao);
+
                 return half4(ao, ao, ao, 1);
             }
             ENDHLSL
         }
-
+        
         Pass
         {
             Name "Blur"
-            
+
             HLSLPROGRAM
             #pragma vertex Vert
             #pragma fragment frag
@@ -146,13 +148,75 @@
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareNormalsTexture.hlsl"
 
-            half4 frag(Varyings i)
-            {
-                
-            }
+            float _BlurSize;
 
+            half4 frag(Varyings i) : SV_Target
+            {
+                float2 uv = i.texcoord;
+                float centerAO = SAMPLE_TEXTURE2D(_BlitTexture, sampler_LinearClamp, uv).r;
+                float blurredAO = 0.0;
+                float weightSum = 0.0;
+
+                UNITY_UNROLL
+                for (int x = -2; x <= 2; ++x)
+                {
+                    UNITY_UNROLL
+                    for (int y = -2; y <= 2; ++y)
+                    {
+                        float2 offset = float2(x, y) * _BlurSize;
+                        float2 sampleUV = uv + offset * _BlitTexture_TexelSize;
+                        float sampleAO = SAMPLE_TEXTURE2D(_BlitTexture, sampler_LinearClamp, sampleUV).r;
+
+                        // 计算空间权重（使用 sigma 为 1 的高斯函数）
+                        float spatialWeight = exp(-dot(offset, offset) / 2);
+
+                        // 计算范围权重（使用 sigma 为 1 的高斯函数）
+                        float rangeWeight = exp(-pow(sampleAO - centerAO, 2) / 2);
+
+                        // 综合权重
+                        float weight = spatialWeight * rangeWeight;
+
+                        blurredAO += sampleAO * weight;
+                        weightSum += weight;
+                    }
+                }
+
+                blurredAO /= weightSum;
+
+                return half4(blurredAO, blurredAO, blurredAO, 1);
+            }
             ENDHLSL
         }
 
+        Pass
+        {
+            Name "Combine"
+
+            Blend One SrcAlpha, Zero One
+            BlendOp Add, Add
+
+            HLSLPROGRAM
+            #pragma vertex Vert
+            #pragma fragment frag
+
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
+            #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareNormalsTexture.hlsl"
+
+            TEXTURE2D(_AOTexture);
+
+            half4 frag(Varyings i) : SV_Target
+            {
+                float2 uv = i.texcoord;
+                half4 color =  SAMPLE_TEXTURE2D(_BlitTexture, sampler_LinearClamp, uv);
+                half ao = SAMPLE_TEXTURE2D(_AOTexture, sampler_LinearClamp, uv).r;
+                color = (1, 1, 1, 1);
+                color *= ao;
+                
+                return half4(color.r, color.g, color.b, 1);
+            }
+            ENDHLSL
+        }
     }
 }
