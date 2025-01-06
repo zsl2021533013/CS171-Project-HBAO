@@ -30,6 +30,7 @@ namespace HBAO
         private static readonly int InvRadius2 = Shader.PropertyToID("_InvRadius2");
         private static readonly int MaxRadiusPixels = Shader.PropertyToID("_MaxRadiusPixels");
         private static readonly int AngleBias = Shader.PropertyToID("_AngleBias");
+        private static readonly int AOMultiplier = Shader.PropertyToID("_AOMultiplier");
         private static readonly int MaxDistance = Shader.PropertyToID("_MaxDistance");
         private static readonly int DistanceFalloff = Shader.PropertyToID("_DistanceFalloff");
         private static readonly int NoiseCb = Shader.PropertyToID("_NoiseCB");
@@ -115,11 +116,11 @@ namespace HBAO
 
             var source = resourceData.activeColorTexture;
 
-            #region HBAO
+            #region Ambient Occlusion
 
-            var HBAODesc = renderGraph.GetTextureDesc(source);
-            HBAODesc.name = "HBAO";
-            var HBAOTH = renderGraph.CreateTexture(HBAODesc);
+            var aoDesc = renderGraph.GetTextureDesc(source);
+            aoDesc.name = "Ambient Occlusion";
+            var aoTH = renderGraph.CreateTexture(aoDesc);
 
             var materialPropertyBlock = new MaterialPropertyBlock();
             materialPropertyBlock.SetBuffer(NoiseCb, noiseCB);
@@ -128,10 +129,10 @@ namespace HBAO
             materialPropertyBlock.SetFloat(InvRadius2, 1 / (renderSettings.radius * renderSettings.radius));
             materialPropertyBlock.SetFloat(MaxRadiusPixels, renderSettings.maxRadiusPixels);
             materialPropertyBlock.SetFloat(AngleBias, renderSettings.angleBias);
+            materialPropertyBlock.SetFloat(AOMultiplier, 2 / (1 - renderSettings.angleBias));
             materialPropertyBlock.SetFloat(MaxDistance, renderSettings.maxDistance);
-            materialPropertyBlock.SetFloat(DistanceFalloff, renderSettings.distanceFalloff);
 
-            var para = new RenderGraphUtils.BlitMaterialParameters(source, HBAOTH, material, 0,
+            var para = new RenderGraphUtils.BlitMaterialParameters(source, aoTH, material, 0,
                 materialPropertyBlock, RenderGraphUtils.FullScreenGeometryType.ProceduralTriangle);
             renderGraph.AddBlitPass(para, passName);
 
@@ -146,7 +147,7 @@ namespace HBAO
             materialPropertyBlock = new MaterialPropertyBlock();
             materialPropertyBlock.SetFloat(BlurSize, renderSettings.blurSize);
 
-            para = new RenderGraphUtils.BlitMaterialParameters(HBAOTH, blurTH, material, 1,
+            para = new RenderGraphUtils.BlitMaterialParameters(aoTH, blurTH, material, 1,
                 materialPropertyBlock, RenderGraphUtils.FullScreenGeometryType.ProceduralTriangle);
             renderGraph.AddBlitPass(para, passName);
 
@@ -157,13 +158,6 @@ namespace HBAO
             var combineDesc = renderGraph.GetTextureDesc(source);
             combineDesc.name = "Combine";
             var combineTH = renderGraph.CreateTexture(combineDesc);
-            
-            /*materialPropertyBlock = new MaterialPropertyBlock();
-            materialPropertyBlock.SetTexture(AOTexture, blurTH);
-
-            para = new RenderGraphUtils.BlitMaterialParameters(source, blurTH, material, 1,
-                materialPropertyBlock, RenderGraphUtils.FullScreenGeometryType.ProceduralTriangle);
-            renderGraph.AddBlitPass(para, passName);*/
             
             using (var builder = renderGraph.AddRasterRenderPass("Combine", out PassData passData, profilingSampler))
             {
@@ -177,34 +171,8 @@ namespace HBAO
                 builder.UseTexture(passData.blurTexture);
                 builder.UseTexture(combineTH, AccessFlags.ReadWrite);
                 
-                // passData.material.SetTexture(AOTexture, passData.blurTexture);
-                
                 builder.SetRenderFunc((PassData data, RasterGraphContext context) => ExecuteBlurPass(data, context));
             }
-
-            /*using (var builder = renderGraph.AddUnsafePass(passName, out PassData passData, profilingSampler))
-            {
-                passData.source = source;
-                passData.destination = combineTH;
-                passData.blurTexture = blurTH;
-                passData.material = material;
-                passData.shaderPass = 2;
-                
-                passData.propertyBlock = new MaterialPropertyBlock();
-                passData.propertyBlock.SetTexture(BlitTexture, source);
-                passData.propertyBlock.SetTexture(AOTexture, blurTH);
-
-                builder.UseTexture(passData.source);
-                builder.UseTexture(passData.blurTexture);
-                builder.UseTexture(passData.destination, AccessFlags.Write);
-                
-                builder.SetRenderFunc((PassData data, UnsafeGraphContext context) =>
-                {
-                    context.cmd.SetRenderTarget(data.destination);
-                    context.cmd.DrawProcedural(Matrix4x4.identity, passData.material, passData.shaderPass, 
-                        MeshTopology.Triangles, 3, 1, passData.propertyBlock);
-                });
-            }*/
 
             #endregion
 
