@@ -18,7 +18,7 @@
             
             HLSLPROGRAM
             #pragma vertex Vert
-            #pragma fragment unity_ambient_occlusion_frag
+            #pragma fragment ambient_occlusion_frag
 
             #include "HBAO.hlsl"
             ENDHLSL
