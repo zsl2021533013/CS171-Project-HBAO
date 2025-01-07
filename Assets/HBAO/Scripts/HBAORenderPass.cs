@@ -30,9 +30,7 @@ namespace HBAO
         private static readonly int InvRadius2 = Shader.PropertyToID("_InvRadius2");
         private static readonly int MaxRadiusPixels = Shader.PropertyToID("_MaxRadiusPixels");
         private static readonly int AngleBias = Shader.PropertyToID("_AngleBias");
-        private static readonly int AOMultiplier = Shader.PropertyToID("_AOMultiplier");
-        private static readonly int MaxDistance = Shader.PropertyToID("_MaxDistance");
-        private static readonly int DistanceFalloff = Shader.PropertyToID("_DistanceFalloff");
+        private static readonly int FallOff = Shader.PropertyToID("_FallOff");
         private static readonly int NoiseCb = Shader.PropertyToID("_NoiseCB");
         private static readonly int BlurSize = Shader.PropertyToID("_BlurSize");
         private static readonly int AOTexture = Shader.PropertyToID("_AOTexture");
@@ -106,6 +104,7 @@ namespace HBAO
 
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
         {
+            var cameraData = frameData.Get<UniversalCameraData>();
             var resourceData = frameData.Get<UniversalResourceData>();
 
             if (resourceData.isActiveTargetBackBuffer)
@@ -121,6 +120,14 @@ namespace HBAO
             var aoDesc = renderGraph.GetTextureDesc(source);
             aoDesc.name = "Ambient Occlusion";
             var aoTH = renderGraph.CreateTexture(aoDesc);
+            
+            var camera = cameraData.camera;
+            var fovRad = camera.fieldOfView * Mathf.Deg2Rad;
+            var invHalfTanFOV = 1 / Mathf.Tan(fovRad * 0.5f);
+            
+            var focalLen = new Vector2(invHalfTanFOV * ((float)camera.pixelHeight / camera.pixelWidth), invHalfTanFOV);
+            var invFocalLen = new Vector2(1 / focalLen.x, 1 / focalLen.y);
+            var depthToViewParams = new Vector4(2 * invFocalLen.x, 2 * invFocalLen.y, -1 * invFocalLen.x, -1 * invFocalLen.y);
 
             var materialPropertyBlock = new MaterialPropertyBlock();
             materialPropertyBlock.SetBuffer(NoiseCb, noiseCB);
@@ -129,8 +136,8 @@ namespace HBAO
             materialPropertyBlock.SetFloat(InvRadius2, 1 / (renderSettings.radius * renderSettings.radius));
             materialPropertyBlock.SetFloat(MaxRadiusPixels, renderSettings.maxRadiusPixels);
             materialPropertyBlock.SetFloat(AngleBias, renderSettings.angleBias);
-            materialPropertyBlock.SetFloat(AOMultiplier, 2 / (1 - renderSettings.angleBias));
-            materialPropertyBlock.SetFloat(MaxDistance, renderSettings.maxDistance);
+            materialPropertyBlock.SetVector("DepthToViewParams", depthToViewParams);
+            materialPropertyBlock.SetFloat(FallOff, renderSettings.falloff);
 
             var para = new RenderGraphUtils.BlitMaterialParameters(source, aoTH, material, 0,
                 materialPropertyBlock, RenderGraphUtils.FullScreenGeometryType.ProceduralTriangle);
@@ -159,30 +166,17 @@ namespace HBAO
             combineDesc.name = "Combine";
             var combineTH = renderGraph.CreateTexture(combineDesc);
             
-            using (var builder = renderGraph.AddRasterRenderPass("Combine", out PassData passData, profilingSampler))
-            {
-                passData.source = source;
-                passData.destination = combineTH;
-                passData.blurTexture = blurTH;
-                passData.material = material;
-                passData.shaderPass = 2;
+            renderGraph.AddCopyPass(source, combineTH);
+            
+            materialPropertyBlock = new MaterialPropertyBlock();
 
-                builder.UseTexture(passData.source);
-                builder.UseTexture(passData.blurTexture);
-                builder.UseTexture(combineTH, AccessFlags.ReadWrite);
-                
-                builder.SetRenderFunc((PassData data, RasterGraphContext context) => ExecuteBlurPass(data, context));
-            }
+            para = new RenderGraphUtils.BlitMaterialParameters(blurTH, combineTH, material, 2,
+                materialPropertyBlock, RenderGraphUtils.FullScreenGeometryType.ProceduralTriangle);
+            renderGraph.AddBlitPass(para, passName);
 
             #endregion
 
-            resourceData.cameraColor = combineTH;
-        }
-        
-        private static void ExecuteBlurPass(PassData passData, RasterGraphContext context)
-        {
-            passData.material.SetTexture(AOTexture, passData.blurTexture);
-            Blitter.BlitTexture(context.cmd, passData.source, new Vector4(1, 1, 0, 0), passData.material, 2);
+            resourceData.cameraColor = aoTH;
         }
     }
 }

@@ -40,7 +40,7 @@
         {
             Name "Combine"
 
-            Blend One SrcAlpha, Zero One
+            Blend One Zero, One Zero
             BlendOp Add, Add
 
             HLSLPROGRAM
