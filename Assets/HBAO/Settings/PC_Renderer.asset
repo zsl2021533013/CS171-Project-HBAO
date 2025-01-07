@@ -1,6 +1,6 @@
 %YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
---- !u!114 &-1830197074369991681
+--- !u!114 &-9088553345673299183
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -9,19 +9,17 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 254f70658bea3bf4bac113016e1d7c46, type: 3}
-  m_Name: AmbientOcclusionMaster
+  m_Script: {fileID: 11500000, guid: 3c454290587e1b34ea823b08b848b3fd, type: 3}
+  m_Name: HBAORenderFeature
   m_EditorClassIdentifier: 
-  m_Active: 0
-  BlueNoise256Textures:
-  - {fileID: 2800000, guid: 36f118343fc974119bee3d09e2111500, type: 3}
-  - {fileID: 2800000, guid: 4b7b083e6b6734e8bb2838b0b50a0bc8, type: 3}
-  - {fileID: 2800000, guid: c06cc21c692f94f5fb5206247191eeee, type: 3}
-  - {fileID: 2800000, guid: cb76dd40fa7654f9587f6a344f125c9a, type: 3}
-  - {fileID: 2800000, guid: e32226222ff144b24bf3a5a451de54bc, type: 3}
-  - {fileID: 2800000, guid: 3302065f671a8450b82c9ddf07426f3a, type: 3}
-  - {fileID: 2800000, guid: 56a77a3e8d64f47b6afe9e3c95cb57d5, type: 3}
-  _aomShader: {fileID: 4800000, guid: b63b4896e13304f4292a444f6cad4751, type: 3}
+  m_Active: 1
+  shader: {fileID: 4800000, guid: 86bf0c42900044dd844ab769fd98358e, type: 3}
+  renderSettings:
+    intensity: 3
+    radius: 0.255
+    maxRadius: 32
+    angleBias: 0.1
+    falloff: 100
 --- !u!114 &11400000
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -47,9 +45,8 @@ MonoBehaviour:
     probeSamplingDebugTexture: {fileID: 2800000, guid: 24ec0e140fb444a44ab96ee80844e18e, type: 3}
     probeVolumeBlendStatesCS: {fileID: 7200000, guid: b9a23f869c4fd45f19c5ada54dd82176, type: 3}
   m_RendererFeatures:
-  - {fileID: -1830197074369991681}
-  - {fileID: 8823246100950166485}
-  m_RendererFeatureMap: ffab372975d599e6d52bfccc9477727a
+  - {fileID: -9088553345673299183}
+  m_RendererFeatureMap: 117bf4a4e2f8de81
   m_UseNativeRenderPass: 1
   xrSystemData: {fileID: 0}
   postProcessData: {fileID: 11400000, guid: 41439944d30ece34e96484bdb6645b55, type: 2}
@@ -75,24 +72,3 @@ MonoBehaviour:
   m_DepthTextureFormat: 0
   m_AccurateGbufferNormals: 0
   m_IntermediateTextureMode: 0
---- !u!114 &8823246100950166485
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 3c454290587e1b34ea823b08b848b3fd, type: 3}
-  m_Name: HBAORenderFeature
-  m_EditorClassIdentifier: 
-  m_Active: 0
-  shader: {fileID: 4800000, guid: 86bf0c42900044dd844ab769fd98358e, type: 3}
-  renderSettings:
-    intensity: 1
-    radius: 1.2
-    maxRadiusPixels: 32
-    angleBias: 0.05
-    falloff: 100
-    blurSize: 1
