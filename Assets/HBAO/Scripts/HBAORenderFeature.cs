@@ -8,9 +8,9 @@ namespace HBAO
     public class HBAORenderSettings
     {
         [Range(1.0f, 5.0f)] public float intensity = 1.0f;
-        [Range(0.25f, 5.0f)] public float radius = 1.2f;
+        [Range(0.25f, 1.0f)] public float radius = 0.25f;
         [Range(1, 32)] public float maxRadius = 32;
-        [Range(0.0f, 0.5f)] public float angleBias = 0.05f;
+        [Range(0.0f, 0.5f)] public float angleBias = 0.1f;
         [Range(0f, 200f)] public float falloff = 100.0f;
     }
 
