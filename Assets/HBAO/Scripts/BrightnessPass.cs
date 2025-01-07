@@ -12,7 +12,7 @@ namespace HBAO
         private Material material;
         private ComputeBuffer noiseCB;
         
-        private const string passName = "HBAO";
+        private const string passName = "Brightness";
         private static readonly int SourceTex = Shader.PropertyToID("_BrightnessTex");
         private static readonly int Brightness = Shader.PropertyToID("_Brightness");
         private static readonly int Saturation = Shader.PropertyToID("_Saturation");
@@ -57,6 +57,7 @@ namespace HBAO
         public void Setup()
         {
             requiresIntermediateTexture = true;
+            ConfigureInput(ScriptableRenderPassInput.Depth | ScriptableRenderPassInput.Normal);
         }
 
         public void Dispose()

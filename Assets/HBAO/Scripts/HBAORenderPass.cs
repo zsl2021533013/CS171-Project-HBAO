@@ -28,12 +28,14 @@ namespace HBAO
         private static readonly int Intensity = Shader.PropertyToID("_Intensity");
         private static readonly int Radius = Shader.PropertyToID("_Radius");
         private static readonly int InvRadius2 = Shader.PropertyToID("_InvRadius2");
-        private static readonly int MaxRadiusPixels = Shader.PropertyToID("_MaxRadiusPixels");
+        private static readonly int MaxRadius = Shader.PropertyToID("_MaxRadius");
         private static readonly int AngleBias = Shader.PropertyToID("_AngleBias");
         private static readonly int FallOff = Shader.PropertyToID("_FallOff");
         private static readonly int NoiseCb = Shader.PropertyToID("_NoiseCB");
         private static readonly int BlurSize = Shader.PropertyToID("_BlurSize");
         private static readonly int AOTexture = Shader.PropertyToID("_AOTexture");
+        private static readonly int DepthToViewParams = Shader.PropertyToID("_DepthToViewParams");
+        private static readonly int FOVCorrection = Shader.PropertyToID("_FOVCorrection");
 
         private class HBAORenderPassData
         {
@@ -82,6 +84,7 @@ namespace HBAO
         public void Setup()
         {
             requiresIntermediateTexture = true;
+            ConfigureInput(ScriptableRenderPassInput.Depth | ScriptableRenderPassInput.Normal);
         }
 
         public void Dispose()
@@ -134,10 +137,11 @@ namespace HBAO
             materialPropertyBlock.SetFloat(Intensity, renderSettings.intensity);
             materialPropertyBlock.SetFloat(Radius, renderSettings.radius);
             materialPropertyBlock.SetFloat(InvRadius2, 1 / (renderSettings.radius * renderSettings.radius));
-            materialPropertyBlock.SetFloat(MaxRadiusPixels, renderSettings.maxRadiusPixels);
+            materialPropertyBlock.SetFloat(MaxRadius, renderSettings.maxRadius);
             materialPropertyBlock.SetFloat(AngleBias, renderSettings.angleBias);
-            materialPropertyBlock.SetVector("DepthToViewParams", depthToViewParams);
+            materialPropertyBlock.SetVector(DepthToViewParams, depthToViewParams);
             materialPropertyBlock.SetFloat(FallOff, renderSettings.falloff);
+            materialPropertyBlock.SetFloat(FOVCorrection, SetFovCorrection(camera.fieldOfView, camera.pixelHeight));
 
             var para = new RenderGraphUtils.BlitMaterialParameters(source, aoTH, material, 0,
                 materialPropertyBlock, RenderGraphUtils.FullScreenGeometryType.ProceduralTriangle);
@@ -176,7 +180,15 @@ namespace HBAO
 
             #endregion
 
-            resourceData.cameraColor = aoTH;
+            resourceData.cameraColor = combineTH;
+        }
+        
+        private static float SetFovCorrection(float fieldOfView, int pixelHeight)
+        {
+            float fovRad = fieldOfView * Mathf.Deg2Rad;
+            float invHalfTanFOV = 1 / Mathf.Tan(fovRad * 0.5f);
+
+            return pixelHeight * invHalfTanFOV * 0.25f;
         }
     }
 }

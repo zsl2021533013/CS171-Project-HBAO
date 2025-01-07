@@ -1,10 +1,21 @@
 ﻿#ifndef Custom_HBAO
 #define Custom_HBAO
 
+#include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
 #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
 #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareNormalsTexture.hlsl"
+
+#include "Assets/ShadowShard/AmbientOcclusionMaster/Shaders/ShaderLibrary/Utils/AOM_Constants.hlsl"
+#include "Assets/ShadowShard/AmbientOcclusionMaster/Shaders/ShaderLibrary/Utils/AOM_Parameters.hlsl"
+#include "Assets/ShadowShard/AmbientOcclusionMaster/Shaders/ShaderLibrary/Utils/AOM_Samplers.hlsl"
+#include "Assets/ShadowShard/AmbientOcclusionMaster/Shaders/ShaderLibrary/Utils/AOM_Functions.hlsl"
+#include "Assets/ShadowShard/AmbientOcclusionMaster/Shaders/ShaderLibrary/Utils/AOM_Noises.hlsl"
+
+#include "Assets/ShadowShard/AmbientOcclusionMaster/Shaders/ShaderLibrary/Utils/DepthUtils.hlsl"
+#include "Assets/ShadowShard/AmbientOcclusionMaster/Shaders/ShaderLibrary/Utils/ViewPositionReconstruction.hlsl"
+#include "Assets/ShadowShard/AmbientOcclusionMaster/Shaders/ShaderLibrary/Utils/NormalReconstruction.hlsl"
 
 #define DIRECTIONS 8
 #define STEPS 6
@@ -14,92 +25,117 @@ StructuredBuffer<float2> _NoiseCB;
 float _Intensity;
 float _Radius;
 float _InvRadius2;
-float _MaxRadiusPixels;
+float _MaxRadius;
 float _AngleBias;
 float _FallOff;
+float _FOVCorrection;
+float4 _DepthToViewParams;
 
-float Falloff(float distanceSquare)
+inline half RadiusFalloff(real dist)
 {
-    return 1.0 - distanceSquare * _InvRadius2;
+    return saturate(1.0 - dist * _InvRadius2);
 }
 
-float ComputeAO(float3 p, float3 n, float3 s)
+inline real HbaoSample(real3 viewPosition, real3 stepViewPosition, real3 normal, inout half angleBias)
 {
-    float3 v = s - p;
-    float VoV = dot(v, v);
-    float NoV = dot(n, v) * rsqrt(VoV);
+    real3 H = stepViewPosition - viewPosition;
+    real dist = length(H);
 
-    return saturate(NoV - _AngleBias) * saturate(Falloff(VoV));
+    // Ensure we don't divide by zero in the sinBlock calculation
+    real dist_inv = rcp(max(dist, 1e-6));
+    real sinBlock = dot(normal, H) * dist_inv;
+
+    real diff = max(sinBlock - angleBias, 0);
+    angleBias = saturate(max(sinBlock, angleBias)); // Clamp to prevent overestimation
+
+    return diff * RadiusFalloff(dist);
 }
 
-float3 GetViewPos(float2 uv)
+real2 GetDirection(real alpha, real noise, int d)
 {
-    float depth = SampleSceneDepth(uv);
-    float2 newUV = float2(uv.x, uv.y);
-    newUV = newUV * 2 - 1;
-    float4 viewPos = mul(UNITY_MATRIX_I_P, float4(newUV, depth, 1));
-    viewPos /= viewPos.w;
-    viewPos.z = -viewPos.z;
-    return viewPos.xyz;
+    real angle = alpha * (d + noise);
+    real sin, cos;
+    sincos(angle, sin, cos);
+
+    return real2(cos, sin);
 }
 
-float3 FetchViewNormals(float2 uv)
+half4 ambient_occlusion_frag(Varyings input) : SV_Target
 {
-    float3 N = SampleSceneNormals(uv);
-    N = TransformWorldToViewDir(N, true);
-    N.y = -N.y;
-    N.z = -N.z;
+    UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
-    return N;
-}
+    real2 uv = input.texcoord;
 
-half4 ambient_occlusion_frag(Varyings i) : SV_Target
-{
-    float2 uv = i.texcoord;
-
-    float3 viewPos = GetViewPos(uv);
-    if (viewPos.z >= _FallOff)
+    real raw_depth_o = SampleDepth(uv);
+    if (raw_depth_o < SKY_DEPTH_VALUE)
     {
-        return 1;
+        return PackAONormal(HALF_ZERO, HALF_ZERO);
     }
 
-    float3 nor = FetchViewNormals(uv);
+    // Early Out for Falloff
+    real linearDepth_o = GetLinearEyeDepth(raw_depth_o);
+    half half_linear_depth_o = half(linearDepth_o);
 
-    int noiseX = (uv.x * _ScreenSize.x - 0.5) % 4;
-    int noiseY = (uv.y * _ScreenSize.y - 0.5) % 4;
-    int noiseIndex = 4 * noiseY + noiseX;
-    float2 rand = _NoiseCB[noiseIndex];
+    if (half_linear_depth_o > _FallOff)
+    {
+        return PackAONormal(HALF_ZERO, HALF_ZERO);
+    }
 
-    float stepSize = min(_Radius / viewPos.z, _MaxRadiusPixels) / (STEPS + 1.0);
-    float stepAng = TWO_PI / DIRECTIONS;
-    
-    float ao = 0;
+    float2 pixelDensity = float2(1.0f, 1.0f);
+
+    #if defined(SUPPORTS_FOVEATED_RENDERING_NON_UNIFORM_RASTER)
+    if (_FOVEATED_RENDERING_NON_UNIFORM_RASTER) {
+        pixelDensity = RemapFoveatedRenderingDensity(RemapFoveatedRenderingNonUniformToLinear(uv));
+    }
+    #endif
+
+    const real fovCorrectedradiusSS = clamp(_Radius * _FOVCorrection * rcp(linearDepth_o), STEPS, _MaxRadius);
+    const real stepSize = max(1, fovCorrectedradiusSS * rcp(STEPS));
+
+    const real2 positionSS = GetScreenSpacePosition(uv);
+    const half noise = GetNoiseMethod(uv, positionSS);
+    const half alpha = TWO_PI / DIRECTIONS;
+    const half rcp_directions_count = half(rcp(DIRECTIONS));
+
+    real3 normal = SampleSceneNormals(uv);
+    real3 normalVS = GetNormalVS(normal);
+    real3 viewPosition = GetPositionVS(uv, _DepthToViewParams);
+
+    half ao = HALF_ZERO;
 
     UNITY_UNROLL
     for (int d = 0; d < DIRECTIONS; ++d)
     {
-        float angle = stepAng * (float(d) + rand.x);
+        real2 direction = GetDirection(alpha, noise, d);
 
-        float cosAng, sinAng;
-        sincos(angle, sinAng, cosAng);
-        float2 direction = float2(cosAng, sinAng);
-
-        float rayPixels = frac(rand.y) * stepSize + 1.0;
+        real rayPixel = 1.0;
+        real angleBias = _AngleBias;
 
         UNITY_UNROLL
         for (int s = 0; s < STEPS; ++s)
         {
-            float2 snappedUV = round(rayPixels * direction) * _ScreenSize.zw + uv;
-            float3 tempViewPos = GetViewPos(snappedUV);
-            rayPixels += stepSize;
-            float tempAO = ComputeAO(viewPos, nor, tempViewPos);
-            ao += tempAO;
+            real2 step_uv = round(rayPixel * direction) * _SourceSize.zw + uv;
+
+            #if defined(SUPPORTS_FOVEATED_RENDERING_NON_UNIFORM_RASTER)
+            UNITY_BRANCH if (_FOVEATED_RENDERING_NON_UNIFORM_RASTER)
+            {
+                step_uv = RemapFoveatedRenderingResolve(step_uv);
+            }
+            #endif
+
+            //real3 stepViewPosition = ReconstructViewPos(step_uv);
+            real3 stepViewPosition = GetPositionVS(step_uv, _DepthToViewParams);
+
+            ao += HbaoSample(viewPosition, stepViewPosition, normalVS, angleBias);
+            rayPixel += stepSize;
         }
     }
 
-    ao = PositivePow(ao * rcp(DIRECTIONS) * _Intensity, 0.6);
-    
-    return ao;
+    half falloff = CalculateDepthFalloff(half_linear_depth_o, _FallOff);
+    ao = PositivePow(ao * rcp_directions_count * _Intensity * falloff, kContrast);
+
+    // Return the packed ao + normals
+    return PackAONormal(ao, normal);
 }
 
 half4 blur_frag(Varyings i) : SV_Target
@@ -143,7 +179,7 @@ half4 combine_frag(Varyings i) : SV_Target
     float2 uv = i.texcoord;
     half ao = SAMPLE_TEXTURE2D(_BlitTexture, sampler_LinearClamp, uv).r;
 
-    return half4(ao, ao, ao, ao);
+    return half4(0, 0, 0, 1 - ao);
 }
 
 #endif

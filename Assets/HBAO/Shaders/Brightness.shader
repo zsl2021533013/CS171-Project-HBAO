@@ -8,6 +8,8 @@
         
         #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
         #include "Packages/com.unity.render-pipelines.core/Runtime/Utilities/Blit.hlsl"
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareDepthTexture.hlsl"
+        #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/DeclareNormalsTexture.hlsl"
 
         CBUFFER_START(UnityPerMaterial)
         float4 _MainTex_ST;
@@ -34,7 +36,7 @@
             {
                 // 纹理采样
                 half4 renderTex = SAMPLE_TEXTURE2D(_BlitTexture, sampler_BlitTexture, i.texcoord);
-
+                
                 // 调整亮度 = 原颜色 * 亮度值
                 half3 finalColor = renderTex.rgb * _Brightness;
 
@@ -50,7 +52,10 @@
                 half3 avgColor = half3(0.5, 0.5, 0.5);
                 finalColor = lerp(avgColor, finalColor, _Contrast);
 
-                return half4(finalColor.rgb, renderTex.a);
+                float depth = SampleSceneDepth(i.texcoord);
+                float3 normal = SampleSceneNormals(i.texcoord);
+
+                return half4(depth, normal);
             }
             ENDHLSL
         }

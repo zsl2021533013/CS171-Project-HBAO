@@ -11,15 +11,15 @@
         Pass
         {
             Name "Ambient Occlusion"
-            
+
             Cull Off
             ZWrite Off
             ZTest Always
-            
+
             HLSLPROGRAM
             #pragma vertex Vert
             #pragma fragment ambient_occlusion_frag
-
+            
             #include "HBAO.hlsl"
             ENDHLSL
         }
@@ -27,6 +27,10 @@
         Pass
         {
             Name "Blur"
+            
+            Cull Off
+            ZWrite Off
+            ZTest Always
 
             HLSLPROGRAM
             #pragma vertex Vert
@@ -40,7 +44,10 @@
         {
             Name "Combine"
 
-            Blend One Zero, One Zero
+            Cull Off
+            ZWrite Off
+            ZTest Always
+            Blend One SrcAlpha, Zero One
             BlendOp Add, Add
 
             HLSLPROGRAM

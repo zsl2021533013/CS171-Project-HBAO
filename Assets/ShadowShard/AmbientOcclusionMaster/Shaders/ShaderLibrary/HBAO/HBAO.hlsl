@@ -48,27 +48,6 @@ real2 GetDirection(real alpha, real noise, int d)
     return real2(cos, sin);
 }
 
-real3 GetViewPos(float2 uv)
-{
-    float depth = SampleSceneDepth(uv);
-    float2 newUV = float2(uv.x, uv.y);
-    newUV = newUV * 2 - 1;
-    float4 viewPos = mul(UNITY_MATRIX_I_P, float4(newUV, depth, 1));
-    viewPos /= viewPos.w;
-    viewPos.z = -viewPos.z;
-    return viewPos.xyz;
-}
-
-real3 FetchViewNormals(float2 uv)
-{
-    float3 N = SampleSceneNormals(uv);
-    N = TransformWorldToViewDir(N, true);
-    N.y = -N.y;
-    N.z = -N.z;
-
-    return N;
-}
-
 half4 HBAO(Varyings input) : SV_Target
 {
     UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
@@ -105,8 +84,7 @@ half4 HBAO(Varyings input) : SV_Target
     real3 normalVS = GetNormalVS(normal);
     //real3 viewPosition = ReconstructViewPos(uv, linearDepth_o);
     real3 viewPosition = GetPositionVS(uv, _DepthToViewParams);
-    //real3 viewPosition = GetViewPos(uv);
-
+    
     half ao = HALF_ZERO;
 
     UNITY_UNROLL
@@ -131,7 +109,6 @@ half4 HBAO(Varyings input) : SV_Target
 
             //real3 stepViewPosition = ReconstructViewPos(step_uv);
             real3 stepViewPosition = GetPositionVS(step_uv, _DepthToViewParams);
-            //real3 stepViewPosition = GetViewPos(step_uv);
 
             ao += HbaoSample(viewPosition, stepViewPosition, normalVS, angleBias);
             rayPixel += stepSize;
