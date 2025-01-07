@@ -13,7 +13,7 @@ namespace HBAO
         private ComputeBuffer noiseCB;
         
         private const string passName = "Brightness";
-        private static readonly int SourceTex = Shader.PropertyToID("_BrightnessTex");
+        private static readonly int SourceTex = Shader.PropertyToID("_BlitTexture");
         private static readonly int Brightness = Shader.PropertyToID("_Brightness");
         private static readonly int Saturation = Shader.PropertyToID("_Saturation");
         private static readonly int Contrast = Shader.PropertyToID("_Contrast");
@@ -50,7 +50,7 @@ namespace HBAO
             noiseCB = new ComputeBuffer(noiseData.Length, sizeof(float) * 2);
             noiseCB.SetData(noiseData);
             
-            profilingSampler = new ProfilingSampler("HBAORenderPass");
+            profilingSampler = new ProfilingSampler("BrightnessRenderPass");
             renderPassEvent = RenderPassEvent.AfterRenderingPostProcessing;
         }
         
@@ -101,11 +101,35 @@ namespace HBAO
             materialPropertyBlock.SetFloat(Saturation, renderSettings.saturation);
             materialPropertyBlock.SetFloat(Contrast, renderSettings.contrast);
             
-            var para = new RenderGraphUtils.BlitMaterialParameters(source, destination, material, 0, 
-                materialPropertyBlock);
-            renderGraph.AddBlitPass(para, passName);
+            using (var builder = renderGraph.AddUnsafePass(passName, out PassData passData))
+            {
+                passData.source = source;
+                passData.destination = destination;
+                passData.material = material;
+                
+                builder.UseTexture(passData.source);
+                builder.UseTexture(passData.destination, AccessFlags.Write);
+                
+                // passData.material.SetTexture(SourceTex, passData.source);
+                
+                builder.SetRenderFunc((PassData data, UnsafeGraphContext context) =>
+                {
+                    passData.material.SetTexture(SourceTex, passData.source);
+                    var unsafeCmd = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+                    Blitter.BlitCameraTexture(unsafeCmd, data.source, data.destination, RenderBufferLoadAction.DontCare, 
+                        RenderBufferStoreAction.Store, data.material, 0);
+                });
+            }
             
             resourceData.cameraColor = destination;
         }
+    }
+
+    public class PassData
+    {
+        public TextureHandle source;
+        public TextureHandle destination;
+        
+        public Material material;
     }
 }

@@ -20,8 +20,6 @@
 #define DIRECTIONS 8
 #define STEPS 6
 
-StructuredBuffer<float2> _NoiseCB;
-
 float _Intensity;
 float _Radius;
 float _InvRadius2;
@@ -81,14 +79,6 @@ half4 ambient_occlusion_frag(Varyings input) : SV_Target
         return PackAONormal(HALF_ZERO, HALF_ZERO);
     }
 
-    float2 pixelDensity = float2(1.0f, 1.0f);
-
-    #if defined(SUPPORTS_FOVEATED_RENDERING_NON_UNIFORM_RASTER)
-    if (_FOVEATED_RENDERING_NON_UNIFORM_RASTER) {
-        pixelDensity = RemapFoveatedRenderingDensity(RemapFoveatedRenderingNonUniformToLinear(uv));
-    }
-    #endif
-
     const real fovCorrectedradiusSS = clamp(_Radius * _FOVCorrection * rcp(linearDepth_o), STEPS, _MaxRadius);
     const real stepSize = max(1, fovCorrectedradiusSS * rcp(STEPS));
 
@@ -115,15 +105,8 @@ half4 ambient_occlusion_frag(Varyings input) : SV_Target
         for (int s = 0; s < STEPS; ++s)
         {
             real2 step_uv = round(rayPixel * direction) * _SourceSize.zw + uv;
+            
 
-            #if defined(SUPPORTS_FOVEATED_RENDERING_NON_UNIFORM_RASTER)
-            UNITY_BRANCH if (_FOVEATED_RENDERING_NON_UNIFORM_RASTER)
-            {
-                step_uv = RemapFoveatedRenderingResolve(step_uv);
-            }
-            #endif
-
-            //real3 stepViewPosition = ReconstructViewPos(step_uv);
             real3 stepViewPosition = GetPositionVS(step_uv, _DepthToViewParams);
 
             ao += HbaoSample(viewPosition, stepViewPosition, normalVS, angleBias);

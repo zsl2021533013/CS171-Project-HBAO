@@ -84,7 +84,7 @@ half4 HBAO(Varyings input) : SV_Target
     real3 normalVS = GetNormalVS(normal);
     //real3 viewPosition = ReconstructViewPos(uv, linearDepth_o);
     real3 viewPosition = GetPositionVS(uv, _DepthToViewParams);
-    
+
     half ao = HALF_ZERO;
 
     UNITY_UNROLL

@@ -12,7 +12,6 @@ namespace HBAO
         [Range(1, 32)] public float maxRadius = 32;
         [Range(0.0f, 0.5f)] public float angleBias = 0.05f;
         [Range(0f, 200f)] public float falloff = 100.0f;
-        [Range(0, 1f)] public float blurSize = 1.0f;
     }
 
     public class HBAORenderFeature : ScriptableRendererFeature

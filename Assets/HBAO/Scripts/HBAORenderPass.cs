@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using HBAO.Scripts;
+using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.RenderGraphModule;
 using UnityEngine.Rendering.RenderGraphModule.Util;
@@ -8,56 +9,22 @@ namespace HBAO
 {
     public class HBAORenderPass : ScriptableRenderPass
     {
-        class PassData
+        public class HBAOPassData
         {
-            public static int sourceTexturePropertyID;
-            public TextureHandle source;
-            public TextureHandle destination;
-            public Material material;
-            public int shaderPass;
-            public MaterialPropertyBlock propertyBlock;
-            public TextureHandle blurTexture;
+            public Material Material;
+            public TextureHandle SourceTexture;
+            public TextureHandle AOTexture;
+            public TextureHandle FinalTexture;
+            public TextureHandle BlurTexture;
+            public TextureHandle CameraNormalsTexture;
+            public Camera camera;
         }
 
         private HBAORenderSettings renderSettings;
+        private HBAOParameters parameters;
         private Material material;
-        private ComputeBuffer noiseCB;
 
-        private const string passName = "HBAO";
-        private static readonly int BlitTexture = Shader.PropertyToID("_BlitTexture");
-        private static readonly int Intensity = Shader.PropertyToID("_Intensity");
-        private static readonly int Radius = Shader.PropertyToID("_Radius");
-        private static readonly int InvRadius2 = Shader.PropertyToID("_InvRadius2");
-        private static readonly int MaxRadius = Shader.PropertyToID("_MaxRadius");
-        private static readonly int AngleBias = Shader.PropertyToID("_AngleBias");
-        private static readonly int FallOff = Shader.PropertyToID("_FallOff");
-        private static readonly int NoiseCb = Shader.PropertyToID("_NoiseCB");
-        private static readonly int BlurSize = Shader.PropertyToID("_BlurSize");
-        private static readonly int AOTexture = Shader.PropertyToID("_AOTexture");
-        private static readonly int DepthToViewParams = Shader.PropertyToID("_DepthToViewParams");
-        private static readonly int FOVCorrection = Shader.PropertyToID("_FOVCorrection");
-
-        private class HBAORenderPassData
-        {
-            public TextureHandle src;
-            public TextureHandle dest;
-            public Material material;
-            public HBAORenderSettings renderSettings;
-        }
-
-        private Vector2[] GenerateNoise()
-        {
-            var noises = new Vector2[4 * 4];
-
-            for (int i = 0; i < noises.Length; i++)
-            {
-                float x = Random.value;
-                float y = Random.value;
-                noises[i] = new Vector2(x, y);
-            }
-
-            return noises;
-        }
+        private const string passName = "HBAO Pass";
 
         public void Init(Shader shader, HBAORenderSettings renderSettings)
         {
@@ -72,11 +39,6 @@ namespace HBAO
 
             this.renderSettings = renderSettings;
 
-            noiseCB?.Release();
-            var noiseData = GenerateNoise();
-            noiseCB = new ComputeBuffer(noiseData.Length, sizeof(float) * 2);
-            noiseCB.SetData(noiseData);
-
             profilingSampler = new ProfilingSampler("HBAORenderPass");
             renderPassEvent = RenderPassEvent.AfterRenderingPostProcessing;
         }
@@ -89,12 +51,6 @@ namespace HBAO
 
         public void Dispose()
         {
-            if (noiseCB != null)
-            {
-                noiseCB.Release();
-                noiseCB = null;
-            }
-
             if (Application.isPlaying)
             {
                 Object.Destroy(material);
@@ -116,79 +72,56 @@ namespace HBAO
                 return;
             }
 
-            var source = resourceData.activeColorTexture;
-
-            #region Ambient Occlusion
-
-            var aoDesc = renderGraph.GetTextureDesc(source);
-            aoDesc.name = "Ambient Occlusion";
-            var aoTH = renderGraph.CreateTexture(aoDesc);
+            var sourceTextureDescriptor = resourceData.activeColorTexture.GetDescriptor(renderGraph);
+            sourceTextureDescriptor.clearBuffer = false;
             
-            var camera = cameraData.camera;
-            var fovRad = camera.fieldOfView * Mathf.Deg2Rad;
-            var invHalfTanFOV = 1 / Mathf.Tan(fovRad * 0.5f);
+            sourceTextureDescriptor.name = "OcclusionTexture0";
+            var aoTexture = renderGraph.CreateTexture(sourceTextureDescriptor);
             
-            var focalLen = new Vector2(invHalfTanFOV * ((float)camera.pixelHeight / camera.pixelWidth), invHalfTanFOV);
-            var invFocalLen = new Vector2(1 / focalLen.x, 1 / focalLen.y);
-            var depthToViewParams = new Vector4(2 * invFocalLen.x, 2 * invFocalLen.y, -1 * invFocalLen.x, -1 * invFocalLen.y);
-
-            var materialPropertyBlock = new MaterialPropertyBlock();
-            materialPropertyBlock.SetBuffer(NoiseCb, noiseCB);
-            materialPropertyBlock.SetFloat(Intensity, renderSettings.intensity);
-            materialPropertyBlock.SetFloat(Radius, renderSettings.radius);
-            materialPropertyBlock.SetFloat(InvRadius2, 1 / (renderSettings.radius * renderSettings.radius));
-            materialPropertyBlock.SetFloat(MaxRadius, renderSettings.maxRadius);
-            materialPropertyBlock.SetFloat(AngleBias, renderSettings.angleBias);
-            materialPropertyBlock.SetVector(DepthToViewParams, depthToViewParams);
-            materialPropertyBlock.SetFloat(FallOff, renderSettings.falloff);
-            materialPropertyBlock.SetFloat(FOVCorrection, SetFovCorrection(camera.fieldOfView, camera.pixelHeight));
-
-            var para = new RenderGraphUtils.BlitMaterialParameters(source, aoTH, material, 0,
-                materialPropertyBlock, RenderGraphUtils.FullScreenGeometryType.ProceduralTriangle);
-            renderGraph.AddBlitPass(para, passName);
-
-            #endregion
-
-            #region Blur
-
-            var blurDesc = renderGraph.GetTextureDesc(source);
-            blurDesc.name = "Blur";
-            var blurTH = renderGraph.CreateTexture(blurDesc);
-
-            materialPropertyBlock = new MaterialPropertyBlock();
-            materialPropertyBlock.SetFloat(BlurSize, renderSettings.blurSize);
-
-            para = new RenderGraphUtils.BlitMaterialParameters(aoTH, blurTH, material, 1,
-                materialPropertyBlock, RenderGraphUtils.FullScreenGeometryType.ProceduralTriangle);
-            renderGraph.AddBlitPass(para, passName);
-
-            #endregion
-
-            #region Combine
+            sourceTextureDescriptor.name = "OcclusionTexture1";
+            var blurTexture = renderGraph.CreateTexture(sourceTextureDescriptor);
             
-            var combineDesc = renderGraph.GetTextureDesc(source);
-            combineDesc.name = "Combine";
-            var combineTH = renderGraph.CreateTexture(combineDesc);
+            sourceTextureDescriptor.name = "OcclusionTexture2";
+            var finalTexture = renderGraph.CreateTexture(sourceTextureDescriptor);
             
-            renderGraph.AddCopyPass(source, combineTH);
+            renderGraph.AddCopyPass(resourceData.activeColorTexture, finalTexture);
+
+            using (var builder = renderGraph.AddUnsafePass(passName, out HBAOPassData passData, profilingSampler))
+            {
+                passData.Material = material;
+                passData.SourceTexture = resourceData.activeColorTexture;
+                passData.AOTexture = aoTexture;
+                passData.BlurTexture = blurTexture;
+                passData.FinalTexture = finalTexture;
+                passData.CameraNormalsTexture = resourceData.cameraNormalsTexture;
+                passData.camera = cameraData.camera;
+
+                builder.UseTexture(resourceData.cameraDepthTexture, AccessFlags.Read);
+                builder.UseTexture(resourceData.cameraNormalsTexture, AccessFlags.Read);
+                builder.UseTexture(passData.SourceTexture, AccessFlags.Read);
+                builder.UseTexture(passData.AOTexture, AccessFlags.ReadWrite);
+                builder.UseTexture(passData.BlurTexture, AccessFlags.ReadWrite);
+                builder.UseTexture(passData.FinalTexture, AccessFlags.ReadWrite);
+
+                builder.SetRenderFunc((HBAOPassData data, UnsafeGraphContext context) =>
+                {
+                    parameters = new HBAOParameters();
+                    parameters.Setup(renderSettings, data);
+                    
+                    var cmd = CommandBufferHelpers.GetNativeCommandBuffer(context.cmd);
+
+                    Blitter.BlitCameraTexture(cmd, data.SourceTexture, data.AOTexture,
+                        RenderBufferLoadAction.DontCare, RenderBufferStoreAction.Store, data.Material, 0);
+
+                    Blitter.BlitCameraTexture(cmd, data.AOTexture, data.BlurTexture,
+                        RenderBufferLoadAction.DontCare, RenderBufferStoreAction.Store, data.Material, 1);
+                
+                    Blitter.BlitCameraTexture(cmd, data.BlurTexture, data.FinalTexture,
+                        RenderBufferLoadAction.Load, RenderBufferStoreAction.Store, data.Material, 2);
+                });
+            }
             
-            materialPropertyBlock = new MaterialPropertyBlock();
-
-            para = new RenderGraphUtils.BlitMaterialParameters(blurTH, combineTH, material, 2,
-                materialPropertyBlock, RenderGraphUtils.FullScreenGeometryType.ProceduralTriangle);
-            renderGraph.AddBlitPass(para, passName);
-
-            #endregion
-
-            resourceData.cameraColor = combineTH;
-        }
-        
-        private static float SetFovCorrection(float fieldOfView, int pixelHeight)
-        {
-            float fovRad = fieldOfView * Mathf.Deg2Rad;
-            float invHalfTanFOV = 1 / Mathf.Tan(fovRad * 0.5f);
-
-            return pixelHeight * invHalfTanFOV * 0.25f;
+            resourceData.cameraColor = finalTexture;
         }
     }
 }
